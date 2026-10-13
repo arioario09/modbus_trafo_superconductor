@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import messagebox
 import csv
 import os
 import struct
@@ -72,7 +73,6 @@ def panel(parent, title, btn_text=None):
     return outer, body
 
 def value_box(parent, text_var, width=11):
-    # Menggunakan textvariable agar teks bisa berubah otomatis
     frame = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
     lbl = tk.Label(frame, textvariable=text_var, width=width, anchor="e", bg=BG_VALUE, fg=TEXT,
                    font=F_VALUE, padx=6, pady=2)
@@ -136,7 +136,7 @@ def param_panel(parent, ui_vars):
     body.columnconfigure(0, weight=1)
     return outer
 
-def status_panel(parent, on_auto_save, on_manual_save, on_clear_charts):
+def status_panel(parent, on_manual_save, on_clear_charts):
     outer, body = panel(parent, "STATUS & KONTROL")
     top_layout = tk.Frame(body, bg=BG_PANEL)
     top_layout.pack(fill="x")
@@ -145,6 +145,7 @@ def status_panel(parent, on_auto_save, on_manual_save, on_clear_charts):
     left.pack(side="left", padx=(4, 16))
     tk.Label(left, text="LN₂ Level", bg=BG_PANEL, fg=TEXT_MUTED, font=("Segoe UI", 8, "bold")).pack(pady=(0, 4))
     
+    # PERBAIKAN SINTAKS CANVAS ERROR DI SINI
     tank = tk.Canvas(left, width=44, height=100, bg=BG_VALUE, highlightbackground=BORDER, highlightthickness=1)
     tank.pack(pady=4)
     level = 0
@@ -159,35 +160,31 @@ def status_panel(parent, on_auto_save, on_manual_save, on_clear_charts):
 
     right = tk.Frame(top_layout, bg=BG_PANEL)
     right.pack(side="left", fill="both", expand=True)
-    tk.Label(right, text="KONTROL AKSI", bg=BG_PANEL, fg=LINE_COLORS[0], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", pady=(0, 2))
+    tk.Label(right, text="KONTROL AKSI", bg=BG_PANEL, fg=LINE_COLORS[0], font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", pady=(0, 10))
     
-    chk = tk.IntVar(value=0)
-    chk_btn = tk.Checkbutton(right, text="Auto Log to CSV (1s)", variable=chk, bg=BG_PANEL, fg=TEXT, 
-                             activebackground=BG_PANEL, activeforeground=TEXT, font=F_LABEL, 
-                             selectcolor=BG_VALUE, command=lambda: on_auto_save(bool(chk.get())))
-    chk_btn.pack(anchor="w", pady=(8, 6))
-
-    tk.Button(right, text="Simpan Data ke CSV", font=("Segoe UI", 8, "bold"), 
+    tk.Button(right, text="Ekspor Data ke CSV", font=("Segoe UI", 8, "bold"), 
               bg=OK, fg="white", activebackground="#059669", activeforeground="white",
-              relief="flat", bd=0, padx=8, pady=6, cursor="hand2",
-              command=on_manual_save).pack(fill="x", pady=2)
+              relief="flat", bd=0, padx=8, pady=8, cursor="hand2",
+              command=on_manual_save).pack(fill="x", pady=4)
 
     tk.Button(right, text="Clear All Chart", font=("Segoe UI", 8, "bold"), 
               bg=DANGER, fg="white", activebackground="#DC2626", activeforeground="white",
-              relief="flat", bd=0, padx=8, pady=6, cursor="hand2",
-              command=on_clear_charts).pack(fill="x", pady=2)
+              relief="flat", bd=0, padx=8, pady=8, cursor="hand2",
+              command=on_clear_charts).pack(fill="x", pady=4)
 
     return outer
 
 def build_gui():
     root = tk.Tk()
     root.title("Sistem Monitoring Trafo Superkonduktor")
-    root.geometry("1150x700")
-    root.minsize(1024, 680)
+    
+    # === SETTING FULLSCREEN ===
+    root.attributes('-fullscreen', True)
+    root.bind("<Escape>", lambda event: root.attributes("-fullscreen", False)) # Tekan ESC untuk keluar fullscreen
     root.configure(bg=BG_MAIN)
     
-    is_logging = False
     all_chart_refs = []
+    collected_data = [] # List untuk menyimpan semua baris data tiap 1 detik
     
     # ----------------------------------------------------
     # INISIALISASI VARIABEL DINAMIS UNTUK GUI
@@ -226,57 +223,53 @@ def build_gui():
     tk.Label(status, text="●", fg=OK, bg="#FFFFFF", font=("Segoe UI", 10)).pack(side="left", padx=(12, 4), pady=4)
     status_msg = tk.Label(status, text="Sistem Beroperasi Normal", bg="#FFFFFF", fg=TEXT, font=("Segoe UI", 9, "bold"))
     status_msg.pack(side="left", pady=4)
-    save_lbl = tk.Label(status, text="AUTO-LOG: NONAKTIF", bg="#FFFFFF", fg=TEXT_MUTED, font=("Segoe UI", 8, "bold"))
+    
+    save_lbl = tk.Label(status, text="AUTO-COLLECT: AKTIF (Tiap 1s)", bg="#FFFFFF", fg=INFO, font=("Segoe UI", 8, "bold"))
     save_lbl.pack(side="right", padx=16, pady=4)
-
-    # ----------------------------------------------------
-    # LOGIKA SISTEM UTAMA
-    # ----------------------------------------------------
-    current_data_dict = {}
-
-    def log_to_csv():
-        if not current_data_dict: return
-        filename = f"datalog_trafo_{datetime.now().strftime('%Y%m%d')}.csv"
-        file_exists = os.path.isfile(filename)
-        try:
-            with open(filename, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=current_data_dict.keys())
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow(current_data_dict)
-        except Exception as e:
-            print(f"Error saving to CSV: {e}")
 
     def flash_status(message, color):
         old_text = status_msg.cget("text")
         old_color = status_msg.cget("fg")
         status_msg.config(text=message, fg=color)
-        root.after(2000, lambda: status_msg.config(text=old_text, fg=old_color))
+        root.after(3000, lambda: status_msg.config(text=old_text, fg=old_color))
 
+    # EKSPOR SEMUA DATA YANG TERKUMPUL KE CSV
     def manual_save_action():
-        log_to_csv()
-        flash_status("Berhasil: 1 Baris Data Disimpan Manual ke CSV!", INFO)
+        if not collected_data:
+            messagebox.showwarning("Peringatan", "Belum ada data yang terkumpul untuk diekspor!")
+            return
+            
+        # PERBAIKAN: Memaksa file tersimpan di lokasi script Python ini berada
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        filename = f"datalog_trafo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        file_path = os.path.join(script_dir, filename)
+        
+        try:
+            with open(file_path, mode='w', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=collected_data[0].keys())
+                writer.writeheader()
+                writer.writerows(collected_data)
+            
+            # Pop-up Sukses sekarang menampilkan path lengkap file
+            messagebox.showinfo("Simpan Berhasil", f"Berhasil mengekspor {len(collected_data)} baris data ke:\n\n{file_path}")
+            flash_status("Data Berhasil Diekspor!", INFO)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Gagal menyimpan ke CSV:\n{e}")
 
     def clear_charts_action():
         waktu_x.clear()
+        collected_data.clear() 
         for key in hist_data:
             hist_data[key].clear()
         for lines, canvas in all_chart_refs:
             for line in lines:
                 line.set_data([], [])
             canvas.draw()
-        flash_status("Berhasil: Semua Grafik Telah Dikosongkan!", DANGER)
-
-    def toggle_logging(state):
-        nonlocal is_logging
-        is_logging = state
-        save_lbl.config(
-            text=f"AUTO-LOG: {'AKTIF (1s)' if state else 'NONAKTIF'}", 
-            fg=INFO if state else TEXT_MUTED
-        )
+        flash_status("Berhasil: Semua Grafik & Data Kosong!", DANGER)
 
     def update_grafik():
-        if len(waktu_x) > 60: # Maksimal 60 titik di layar grafik
+        if len(waktu_x) > 60: 
             waktu_x.pop(0)
             for key in hist_data: hist_data[key].pop(0)
             
@@ -302,7 +295,7 @@ def build_gui():
             ax = lines[0].axes
             ax.set_xlim(0, max(60, len(waktu_x)))
 
-    # LOOP PEMBACAAN DATA
+    # LOOP PEMBACAAN DATA (Tiap 1 Detik)
     def tick():
         clock.config(text=datetime.now().strftime("%d-%m-%Y  %H:%M:%S"))
         
@@ -313,10 +306,10 @@ def build_gui():
             t3 = modbus_client.read_input_registers(address=1012, count=1, slave=SLAVE_TEMP)
             t4 = modbus_client.read_input_registers(address=1018, count=1, slave=SLAVE_TEMP)
             
-            val_t1 = t1.registers[0]/10.0 if not t1.isError() else 0.0
-            val_t2 = t2.registers[0]/10.0 if not t2.isError() else 0.0
-            val_t3 = t3.registers[0]/10.0 if not t3.isError() else 0.0
-            val_t4 = t4.registers[0]/10.0 if not t4.isError() else 0.0
+            val_t1 = t1.registers[0] if not t1.isError() else 0.0
+            val_t2 = t2.registers[0] if not t2.isError() else 0.0
+            val_t3 = t3.registers[0] if not t3.isError() else 0.0
+            val_t4 = t4.registers[0] if not t4.isError() else 0.0
 
             # --- BACA POWER IN (SLAVE 2) ---
             v_in     = konversi_ke_float(modbus_client.read_holding_registers(address=3027, count=2, slave=SLAVE_IN))
@@ -375,8 +368,8 @@ def build_gui():
             
             update_grafik()
 
-            # --- PERSIAPKAN DATA UNTUK CSV ---
-            current_data_dict.update({
+            # --- KUMPULKAN DATA OTOMATIS TIAP DETIK ---
+            current_data_dict = {
                 "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "Temp 1 (C)": val_t1, "Temp 2 (C)": val_t2, "Temp 3 (C)": val_t3, "Temp 4 (C)": val_t4,
                 "Voltage In (V)": v_in, "Voltage Out (V)": v_out,
@@ -387,10 +380,8 @@ def build_gui():
                 "Energy In (Wh)": wh_in, "Energy Out (Wh)": wh_out,
                 "Harmonic Current (%)": harm_c, "Harmonic Voltage (%)": harm_v,
                 "Power Factor": pf, "Frequency (Hz)": freq
-            })
-
-        if is_logging and current_data_dict:
-            log_to_csv()
+            }
+            collected_data.append(current_data_dict.copy())
             
         root.after(1000, tick)
 
@@ -453,7 +444,6 @@ def build_gui():
     
     param_panel(side, ui_vars).pack(fill="x", pady=(0, 4))
     status_panel(side, 
-                 on_auto_save=toggle_logging, 
                  on_manual_save=manual_save_action, 
                  on_clear_charts=clear_charts_action).pack(fill="x", pady=(8, 12))
 
